@@ -1,17 +1,55 @@
 import streamlit as st
 import pandas as pd
+import io
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
 
 # Configuração da página para abrir em modo wide
 st.set_page_config(page_title="Dashboard de Janelas", layout="wide")
 
-# Carregar os dados
+# Função para carregar dados do Google Drive (Google Sheets exportado como XLSX)
 @st.cache_data
 def load_data():
-    file_path = "informacoes_janelas2.xlsx"
-    df = pd.read_excel(file_path, sheet_name='Sheet1')
+    # Atualize o caminho do arquivo de credenciais conforme necessário
+    GOOGLE_CREDENTIALS_FILE = r"C:\Users\leonardo.fragoso\Documents\Dash-Janelas\gdrive_credentials.json"
+    
+    # ID da planilha extraído da URL:
+    # https://docs.google.com/spreadsheets/d/1prMkez7J-wbWUGbZp-VLyfHtisSLi-XQ/edit?pli=1&gid=1613900400#gid=1613900400
+    file_id = "1prMkez7J-wbWUGbZp-VLyfHtisSLi-XQ"
+    
+    # Autenticar e construir o serviço do Google Drive
+    credentials = service_account.Credentials.from_service_account_file(GOOGLE_CREDENTIALS_FILE)
+    drive_service = build('drive', 'v3', credentials=credentials)
+    
+    # Obter os metadados para identificar o mimeType
+    file_metadata = drive_service.files().get(fileId=file_id, fields='mimeType').execute()
+    mime_type = file_metadata.get('mimeType')
+    
+    # Baixar o arquivo (se for um Google Sheet nativo, exporta para XLSX)
+    fh = io.BytesIO()
+    if mime_type == "application/vnd.google-apps.spreadsheet":
+        request = drive_service.files().export_media(
+            fileId=file_id,
+            mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    else:
+        request = drive_service.files().get_media(fileId=file_id)
+    
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+        status, done = downloader.next_chunk()
+    fh.seek(0)
+    
+    # Ler a planilha (ajuste o sheet_name se necessário)
+    df = pd.read_excel(fh, sheet_name='Sheet1')
     return df
 
 df = load_data()
+if df is None:
+    st.error("Não foi possível carregar os dados da planilha.")
+    st.stop()
 
 # Aplicar estilos personalizados
 st.markdown(
@@ -84,26 +122,30 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Criar filtros abaixo do título
+# Criar filtros abaixo do título (6 colunas, incluindo "DI / BOOKING / CTE")
 st.markdown('<div class="filters-container">', unsafe_allow_html=True)
 
-col1, col2, col3, col4, col5 = st.columns(5)
+col1, col2, col3, col4, col5, col6 = st.columns(6)
 
 with col1:
-    dates = st.multiselect("Selecione a Data", df["Dia"].unique())
+    di_booking = st.multiselect("Selecione DI / BOOKING / CTE", df["DI / BOOKING / CTE"].unique())
 with col2:
-    types = st.multiselect("Selecione o Tipo", df["Tipo"].unique())
+    dates = st.multiselect("Selecione a Data", df["Dia"].unique())
 with col3:
-    windows = st.multiselect("Selecione a Janela", df["Janela"].unique())
+    types = st.multiselect("Selecione o Tipo", df["Tipo"].unique())
 with col4:
-    horas_iniciais = st.multiselect("Selecione a Hora Inicial", df["Hora Inicial"].unique())
+    windows = st.multiselect("Selecione a Janela", df["Janela"].unique())
 with col5:
+    horas_iniciais = st.multiselect("Selecione a Hora Inicial", df["Hora Inicial"].unique())
+with col6:
     horas_finais = st.multiselect("Selecione a Hora Final", df["Hora Final"].unique())
 
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Aplicar filtros
 filtered_df = df.copy()
+if di_booking:
+    filtered_df = filtered_df[filtered_df["DI / BOOKING / CTE"].isin(di_booking)]
 if dates:
     filtered_df = filtered_df[filtered_df["Dia"].isin(dates)]
 if types:
@@ -119,9 +161,11 @@ if horas_finais:
 available_columns = list(filtered_df.columns)
 selected_columns = st.multiselect("Selecione as colunas para exibir:", available_columns, default=available_columns)
 
-# Garantir que a coluna "Dia" esteja presente para ser usada como índice
+# Garantir que as colunas "Dia" e "DI / BOOKING / CTE" estejam presentes
 if "Dia" not in selected_columns:
     selected_columns.insert(0, "Dia")
+if "DI / BOOKING / CTE" not in selected_columns:
+    selected_columns.insert(1, "DI / BOOKING / CTE")
 
 # Exibir tabela estilizada com a coluna "Dia" como índice (removendo o índice padrão)
 st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)

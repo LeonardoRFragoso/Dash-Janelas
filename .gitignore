@@ -1,0 +1,28 @@
+# Diretórios e arquivos de ambiente virtual
+venv/
+env/
+ENV/
+*.env
+
+# Arquivos e pastas gerados pelo Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Diretórios de build e distribuição
+build/
+dist/
+*.egg-info/
+
+# Arquivos de log, caches e outros
+*.log
+.cache/
+
+# Configurações do VS Code, PyCharm, etc.
+.vscode/
+.idea/
+
+# Arquivos de credenciais e secrets
+gdrive_credentials.json
+.streamlit/secrets.toml
+secrets.toml
