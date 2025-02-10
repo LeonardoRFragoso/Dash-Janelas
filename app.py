@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import io
+import json  # Importa o módulo para converter a string em dict
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
@@ -11,29 +12,31 @@ st.set_page_config(page_title="Dashboard de Janelas", layout="wide")
 # Função para carregar dados do Google Drive (Google Sheets exportado como XLSX)
 @st.cache_data
 def load_data():
-    # Atualize o caminho do arquivo de credenciais conforme necessário
-    GOOGLE_CREDENTIALS_FILE = r"C:\Users\leonardo.fragoso\Documents\Dash-Janelas\gdrive_credentials.json"
+    # Converte a string de credenciais em um dicionário
+    credentials_info = json.loads(st.secrets["general"]["CREDENTIALS"])
+    credentials = service_account.Credentials.from_service_account_info(credentials_info)
     
     # ID da planilha extraído da URL:
     # https://docs.google.com/spreadsheets/d/1prMkez7J-wbWUGbZp-VLyfHtisSLi-XQ/edit?pli=1&gid=1613900400#gid=1613900400
     file_id = "1prMkez7J-wbWUGbZp-VLyfHtisSLi-XQ"
     
-    # Autenticar e construir o serviço do Google Drive
-    credentials = service_account.Credentials.from_service_account_file(GOOGLE_CREDENTIALS_FILE)
+    # Constrói o serviço do Google Drive
     drive_service = build('drive', 'v3', credentials=credentials)
     
-    # Obter os metadados para identificar o mimeType
+    # Obtém os metadados do arquivo para identificar o mimeType
     file_metadata = drive_service.files().get(fileId=file_id, fields='mimeType').execute()
     mime_type = file_metadata.get('mimeType')
     
-    # Baixar o arquivo (se for um Google Sheet nativo, exporta para XLSX)
+    # Baixa o arquivo para um objeto BytesIO
     fh = io.BytesIO()
     if mime_type == "application/vnd.google-apps.spreadsheet":
+        # Se for um Google Sheet nativo, exporta para XLSX
         request = drive_service.files().export_media(
             fileId=file_id,
             mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
     else:
+        # Se for outro tipo de arquivo (ex.: Excel), baixa diretamente
         request = drive_service.files().get_media(fileId=file_id)
     
     downloader = MediaIoBaseDownload(fh, request)
@@ -46,12 +49,13 @@ def load_data():
     df = pd.read_excel(fh, sheet_name='Sheet1')
     return df
 
+# Carrega os dados
 df = load_data()
 if df is None:
     st.error("Não foi possível carregar os dados da planilha.")
     st.stop()
 
-# Aplicar estilos personalizados
+# Estilos personalizados
 st.markdown(
     """
     <style>
@@ -122,9 +126,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Criar filtros abaixo do título (6 colunas, incluindo "DI / BOOKING / CTE")
+# Criar filtros (6 colunas, incluindo "DI / BOOKING / CTE")
 st.markdown('<div class="filters-container">', unsafe_allow_html=True)
-
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 
 with col1:
@@ -139,7 +142,6 @@ with col5:
     horas_iniciais = st.multiselect("Selecione a Hora Inicial", df["Hora Inicial"].unique())
 with col6:
     horas_finais = st.multiselect("Selecione a Hora Final", df["Hora Final"].unique())
-
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Aplicar filtros
@@ -167,7 +169,7 @@ if "Dia" not in selected_columns:
 if "DI / BOOKING / CTE" not in selected_columns:
     selected_columns.insert(1, "DI / BOOKING / CTE")
 
-# Exibir tabela estilizada com a coluna "Dia" como índice (removendo o índice padrão)
+# Exibir tabela com a coluna "Dia" como índice
 st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
 st.dataframe(filtered_df[selected_columns].set_index("Dia"), use_container_width=True)
 st.markdown('</div>', unsafe_allow_html=True)
