@@ -49,7 +49,7 @@ def load_data():
     df = pd.read_excel(fh, sheet_name='Sheet1')
     return df
 
-# Carrega os dados
+# Carrega os dados da planilha original
 df = load_data()
 if df is None:
     st.error("Não foi possível carregar os dados da planilha.")
@@ -135,7 +135,11 @@ if st.button("Atualizar Dados"):
     load_data.clear()       # Limpa o cache da função load_data
     st.experimental_rerun() # Recarrega a página para buscar os dados atualizados
 
-# Criar filtros (6 colunas, incluindo "DI / BOOKING / CTE")
+# =============================
+# PRIMEIRA TABELA (Planilha Original)
+# =============================
+
+# Criar filtros para a primeira tabela (6 colunas específicas)
 st.markdown('<div class="filters-container">', unsafe_allow_html=True)
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 
@@ -153,7 +157,7 @@ with col6:
     horas_finais = st.multiselect("Selecione a Hora Final", df["Hora Final"].unique())
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Aplicar filtros
+# Aplicar filtros na primeira tabela
 filtered_df = df.copy()
 if di_booking:
     filtered_df = filtered_df[filtered_df["DI / BOOKING / CTE"].isin(di_booking)]
@@ -168,7 +172,7 @@ if horas_iniciais:
 if horas_finais:
     filtered_df = filtered_df[filtered_df["Hora Final"].isin(horas_finais)]
 
-# Seleção de colunas para exibição
+# Seleção de colunas para exibição na primeira tabela
 available_columns = list(filtered_df.columns)
 selected_columns = st.multiselect("Selecione as colunas para exibir:", available_columns, default=available_columns)
 
@@ -178,16 +182,64 @@ if "Dia" not in selected_columns:
 if "DI / BOOKING / CTE" not in selected_columns:
     selected_columns.insert(1, "DI / BOOKING / CTE")
 
-# Exibir tabela com a coluna "Dia" como índice
+# Exibir a primeira tabela com a coluna "Dia" como índice
 st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
 st.dataframe(filtered_df[selected_columns].set_index("Dia"), use_container_width=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Botão para exportar os dados filtrados em CSV
+# Botão para exportar os dados filtrados da primeira tabela em CSV
 csv_data = filtered_df[selected_columns].to_csv(index=False, sep=';', encoding='utf-8-sig')
 st.download_button(
     label="📥 Baixar dados filtrados em CSV",
     data=csv_data.encode('utf-8-sig'),
     file_name="janelas_filtradas.csv",
+    mime="text/csv"
+)
+
+# ==========================================
+# SEGUNDA SEÇÃO: Nova Planilha com Dropdown para Filtros
+# ==========================================
+st.markdown("<h2 style='text-align: center; margin-top: 40px;'>Dados da Nova Planilha (Janelas Multirio Corrigido)</h2>", unsafe_allow_html=True)
+
+try:
+    # Carrega a nova planilha utilizando o caminho informado
+    df_nova = pd.read_excel(r"C:\Users\leonardo.fragoso\Desktop\Projetos\Dash-Janelas\janelas_multirio_corrigido.xlsx")
+except Exception as e:
+    st.error(f"Erro ao carregar a nova planilha: {e}")
+    st.stop()
+
+# Dropdown para escolher quais colunas deseja filtrar
+selected_filter_columns = st.multiselect("Selecione as colunas para aplicar filtro", options=list(df_nova.columns))
+
+# Para cada coluna selecionada, exibe um multiselect com os valores únicos
+filters_nova = {}
+for col in selected_filter_columns:
+    unique_vals = df_nova[col].dropna().unique()
+    filters_nova[col] = st.multiselect(f"Selecione os valores para filtrar por '{col}'", options=unique_vals, key=f"filter_{col}")
+
+# Aplicar os filtros na nova planilha
+filtered_df_nova = df_nova.copy()
+for col, selected_vals in filters_nova.items():
+    if selected_vals:
+        filtered_df_nova = filtered_df_nova[filtered_df_nova[col].isin(selected_vals)]
+
+# Seleção de colunas para exibição na nova planilha
+available_columns_nova = list(filtered_df_nova.columns)
+selected_columns_nova = st.multiselect("Selecione as colunas para exibir na Nova Planilha:", available_columns_nova, default=available_columns_nova)
+
+# Exibir a nova tabela. Se a coluna "JANELAS MULTIRIO" estiver presente, utiliza-a como índice.
+st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
+if "JANELAS MULTIRIO" in selected_columns_nova:
+    st.dataframe(filtered_df_nova[selected_columns_nova].set_index("JANELAS MULTIRIO"), use_container_width=True)
+else:
+    st.dataframe(filtered_df_nova[selected_columns_nova], use_container_width=True)
+st.markdown('</div>', unsafe_allow_html=True)
+
+# Botão para exportar os dados filtrados da nova planilha em CSV
+csv_data_nova = filtered_df_nova[selected_columns_nova].to_csv(index=False, sep=';', encoding='utf-8-sig')
+st.download_button(
+    label="📥 Baixar dados filtrados da Nova Planilha em CSV",
+    data=csv_data_nova.encode('utf-8-sig'),
+    file_name="janelas_multirio_corrigido_filtradas.csv",
     mime="text/csv"
 )
