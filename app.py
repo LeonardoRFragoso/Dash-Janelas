@@ -197,7 +197,7 @@ st.download_button(
 )
 
 # ==========================================
-# SEGUNDA SEÇÃO: Nova Planilha com Dropdown para Filtros
+# SEGUNDA SEÇÃO: Nova Planilha - Apenas Seleção de Colunas
 # ==========================================
 st.markdown("<h2 style='text-align: center; margin-top: 40px;'>Dados da Nova Planilha (Janelas Multirio Corrigido)</h2>", unsafe_allow_html=True)
 
@@ -208,38 +208,23 @@ except Exception as e:
     st.error(f"Erro ao carregar a nova planilha: {e}")
     st.stop()
 
-# Dropdown para escolher quais colunas deseja filtrar
-selected_filter_columns = st.multiselect("Selecione as colunas para aplicar filtro", options=list(df_nova.columns))
-
-# Para cada coluna selecionada, exibe um multiselect com os valores únicos
-filters_nova = {}
-for col in selected_filter_columns:
-    unique_vals = df_nova[col].dropna().unique()
-    filters_nova[col] = st.multiselect(f"Selecione os valores para filtrar por '{col}'", options=unique_vals, key=f"filter_{col}")
-
-# Aplicar os filtros na nova planilha
-filtered_df_nova = df_nova.copy()
-for col, selected_vals in filters_nova.items():
-    if selected_vals:
-        filtered_df_nova = filtered_df_nova[filtered_df_nova[col].isin(selected_vals)]
-
 # Seleção de colunas para exibição na nova planilha
-available_columns_nova = list(filtered_df_nova.columns)
+available_columns_nova = list(df_nova.columns)
 selected_columns_nova = st.multiselect("Selecione as colunas para exibir na Nova Planilha:", available_columns_nova, default=available_columns_nova)
 
 # Exibir a nova tabela. Se a coluna "JANELAS MULTIRIO" estiver presente, utiliza-a como índice.
 st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
 if "JANELAS MULTIRIO" in selected_columns_nova:
-    st.dataframe(filtered_df_nova[selected_columns_nova].set_index("JANELAS MULTIRIO"), use_container_width=True)
+    st.dataframe(df_nova[selected_columns_nova].set_index("JANELAS MULTIRIO"), use_container_width=True)
 else:
-    st.dataframe(filtered_df_nova[selected_columns_nova], use_container_width=True)
+    st.dataframe(df_nova[selected_columns_nova], use_container_width=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Botão para exportar os dados filtrados da nova planilha em CSV
-csv_data_nova = filtered_df_nova[selected_columns_nova].to_csv(index=False, sep=';', encoding='utf-8-sig')
+# Botão para exportar os dados da nova planilha em CSV
+csv_data_nova = df_nova[selected_columns_nova].to_csv(index=False, sep=';', encoding='utf-8-sig')
 st.download_button(
-    label="📥 Baixar dados filtrados da Nova Planilha em CSV",
+    label="📥 Baixar dados da Nova Planilha em CSV",
     data=csv_data_nova.encode('utf-8-sig'),
-    file_name="janelas_multirio_corrigido_filtradas.csv",
+    file_name="janelas_multirio_corrigido.csv",
     mime="text/csv"
 )
