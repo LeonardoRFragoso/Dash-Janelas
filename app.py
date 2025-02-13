@@ -1,42 +1,45 @@
 import streamlit as st
-import pandas as pd
 import io
-import json  # Para converter a string em dict
+import json
+import pandas as pd
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
-# Configuração da página para abrir em modo wide
-st.set_page_config(page_title="Dashboard de Janelas", layout="wide")
+# ======================================================
+# Funções para carregar os dados das planilhas do Google Drive
+# ======================================================
 
-# Função para carregar dados do Google Drive (Google Sheets exportado como XLSX)
-@st.cache_data(ttl=60)  # Cache com TTL de 60 segundos
-def load_data():
-    # Converte a string de credenciais em um dicionário
-    credentials_info = json.loads(st.secrets["general"]["CREDENTIALS"])
+def load_spreadsheet(file_id: str, sheet_name: str = 0) -> pd.DataFrame:
+    """
+    Carrega um arquivo do Google Drive como planilha e retorna um DataFrame do Pandas.
+    
+    Parâmetros:
+      - file_id: ID do arquivo no Google Drive.
+      - sheet_name: Nome ou índice da aba da planilha a ser lida (padrão: 0 – primeira aba).
+    
+    Retorna:
+      - DataFrame com os dados da planilha.
+    """
+    credentials_path = r"C:\Users\leonardo.fragoso\Desktop\Projetos\Dash-Janelas\gdrive_credentials.json"
+    with open(credentials_path, 'r') as f:
+        credentials_info = json.load(f)
     credentials = service_account.Credentials.from_service_account_info(credentials_info)
     
-    # ID da planilha extraído da URL:
-    # https://docs.google.com/spreadsheets/d/1prMkez7J-wbWUGbZp-VLyfHtisSLi-XQ/edit?pli=1&gid=1613900400#gid=1613900400
-    file_id = "1prMkez7J-wbWUGbZp-VLyfHtisSLi-XQ"
-    
-    # Constrói o serviço do Google Drive
     drive_service = build('drive', 'v3', credentials=credentials)
     
-    # Obtém os metadados do arquivo para identificar o mimeType
+    # Obtém os metadados para identificar o mimeType
     file_metadata = drive_service.files().get(fileId=file_id, fields='mimeType').execute()
     mime_type = file_metadata.get('mimeType')
     
     # Baixa o arquivo para um objeto BytesIO
     fh = io.BytesIO()
     if mime_type == "application/vnd.google-apps.spreadsheet":
-        # Se for um Google Sheet nativo, exporta para XLSX
         request = drive_service.files().export_media(
             fileId=file_id,
             mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
     else:
-        # Se for outro tipo de arquivo (ex.: Excel), baixa diretamente
         request = drive_service.files().get_media(fileId=file_id)
     
     downloader = MediaIoBaseDownload(fh, request)
@@ -45,17 +48,33 @@ def load_data():
         status, done = downloader.next_chunk()
     fh.seek(0)
     
-    # Ler a planilha (ajuste o sheet_name se necessário)
-    df = pd.read_excel(fh, sheet_name='Sheet1')
+    df = pd.read_excel(fh, sheet_name=sheet_name)
     return df
 
-# Carrega os dados da planilha original
-df = load_data()
-if df is None:
-    st.error("Não foi possível carregar os dados da planilha.")
-    st.stop()
+def load_janelas_multirio_data() -> pd.DataFrame:
+    """
+    Carrega os dados da planilha 'janelas_multirio_corrigido.xlsx'.
+    
+    URL: https://docs.google.com/spreadsheets/d/1Eh58MkuHwyHpYCscMPD9X1r_83dbHV63/edit?gid=927178025#gid=927178025
+    """
+    file_id = "1Eh58MkuHwyHpYCscMPD9X1r_83dbHV63"
+    return load_spreadsheet(file_id)
 
-# Estilos personalizados: definindo container para o título com degradê
+def load_informacoes_janelas_data() -> pd.DataFrame:
+    """
+    Carrega os dados da planilha 'informacoes_janelas.xlsx'.
+    
+    URL: https://docs.google.com/spreadsheets/d/1prMkez7J-wbWUGbZp-VLyfHtisSLi-XQ/edit?gid=1452739125#gid=1452739125
+    """
+    file_id = "1prMkez7J-wbWUGbZp-VLyfHtisSLi-XQ"
+    return load_spreadsheet(file_id)
+
+# ======================================================
+# Configuração da página e exibição da logo e título
+# ======================================================
+
+st.set_page_config(page_title="Dashboard de Janelas", layout="wide")
+
 st.markdown(
     """
     <style>
@@ -83,22 +102,11 @@ st.markdown(
             color: #555555;
             margin: 10px 0 0 0;
         }
-        .filters-container {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 15px;
-            margin-top: 20px;
-        }
-        .dataframe-container {
-            margin-top: 20px;
-        }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# Solução 1 - Centralizar a logo usando HTML + CSS
 st.markdown(
     """
     <div style="display: flex; justify-content: center; margin-top: 20px; margin-bottom: 20px;">
@@ -108,7 +116,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Exibir o container com o título e subtítulo (barra em degradê)
 st.markdown(
     """
     <div class="titulo-dashboard-container">
@@ -119,112 +126,108 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Informar a origem da tabela
-st.markdown(
-    """
-    <div style="text-align: center; margin-top: 20px;">
-        <h3>Janelas Disponíveis no Site da Rio Brasil Terminal</h3>
-        <p>Consulta realizada no site da Rio Brasil Terminal</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+# ======================================================
+# Processamento dos Dados
+# ======================================================
 
-# Botão para atualizar os dados manualmente
-if st.button("Atualizar Dados"):
-    load_data.clear()       # Limpa o cache da função load_data
-    st.experimental_rerun() # Recarrega a página para buscar os dados atualizados
-
-# =============================
-# PRIMEIRA TABELA (Planilha Original)
-# =============================
-
-# Criar filtros para a primeira tabela (6 colunas específicas)
-st.markdown('<div class="filters-container">', unsafe_allow_html=True)
-col1, col2, col3, col4, col5, col6 = st.columns(6)
-
-with col1:
-    di_booking = st.multiselect("Selecione DI / BOOKING / CTE", df["DI / BOOKING / CTE"].unique())
-with col2:
-    dates = st.multiselect("Selecione a Data", df["Dia"].unique())
-with col3:
-    types = st.multiselect("Selecione o Tipo", df["Tipo"].unique())
-with col4:
-    windows = st.multiselect("Selecione a Janela", df["Janela"].unique())
-with col5:
-    horas_iniciais = st.multiselect("Selecione a Hora Inicial", df["Hora Inicial"].unique())
-with col6:
-    horas_finais = st.multiselect("Selecione a Hora Final", df["Hora Final"].unique())
-st.markdown('</div>', unsafe_allow_html=True)
-
-# Aplicar filtros na primeira tabela
-filtered_df = df.copy()
-if di_booking:
-    filtered_df = filtered_df[filtered_df["DI / BOOKING / CTE"].isin(di_booking)]
-if dates:
-    filtered_df = filtered_df[filtered_df["Dia"].isin(dates)]
-if types:
-    filtered_df = filtered_df[filtered_df["Tipo"].isin(types)]
-if windows:
-    filtered_df = filtered_df[filtered_df["Janela"].isin(windows)]
-if horas_iniciais:
-    filtered_df = filtered_df[filtered_df["Hora Inicial"].isin(horas_iniciais)]
-if horas_finais:
-    filtered_df = filtered_df[filtered_df["Hora Final"].isin(horas_finais)]
-
-# Seleção de colunas para exibição na primeira tabela
-available_columns = list(filtered_df.columns)
-selected_columns = st.multiselect("Selecione as colunas para exibir:", available_columns, default=available_columns)
-
-# Garantir que as colunas "Dia" e "DI / BOOKING / CTE" estejam presentes
-if "Dia" not in selected_columns:
-    selected_columns.insert(0, "Dia")
-if "DI / BOOKING / CTE" not in selected_columns:
-    selected_columns.insert(1, "DI / BOOKING / CTE")
-
-# Exibir a primeira tabela com a coluna "Dia" como índice
-st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
-st.dataframe(filtered_df[selected_columns].set_index("Dia"), use_container_width=True)
-st.markdown('</div>', unsafe_allow_html=True)
-
-# Botão para exportar os dados filtrados da primeira tabela em CSV
-csv_data = filtered_df[selected_columns].to_csv(index=False, sep=';', encoding='utf-8-sig')
-st.download_button(
-    label="📥 Baixar dados filtrados em CSV",
-    data=csv_data.encode('utf-8-sig'),
-    file_name="janelas_filtradas.csv",
-    mime="text/csv"
-)
-
-# ==========================================
-# SEGUNDA SEÇÃO: Nova Planilha - Apenas Seleção de Colunas
-# ==========================================
-st.markdown("<h2 style='text-align: center; margin-top: 40px;'>Dados da Nova Planilha (Janelas Multirio Corrigido)</h2>", unsafe_allow_html=True)
-
+# Carrega os dados de ambas as planilhas
 try:
-    # Carrega a nova planilha utilizando o caminho informado
-    df_nova = pd.read_excel(r"C:\Users\leonardo.fragoso\Desktop\Projetos\Dash-Janelas\janelas_multirio_corrigido.xlsx")
+    df_multirio = load_janelas_multirio_data()
+    df_info = load_informacoes_janelas_data()
 except Exception as e:
-    st.error(f"Erro ao carregar a nova planilha: {e}")
+    st.error(f"Erro ao carregar os dados das planilhas: {e}")
     st.stop()
 
-# Seleção de colunas para exibição na nova planilha
-available_columns_nova = list(df_nova.columns)
-selected_columns_nova = st.multiselect("Selecione as colunas para exibir na Nova Planilha:", available_columns_nova, default=available_columns_nova)
+# --- Processamento dos dados da planilha janelas_multirio_corrigido.xlsx ---
+# Seleciona os campos originais:
+# - "Data" e "JANELAS MULTIRIO" (que será renomeada para "Horário")
+# - Todas as colunas cujo nome (após remover espaços) termina com "Disp."
+# - Se existir, também inclui a coluna "ENTREGA CHEIO DL"
+disp_cols = [col for col in df_multirio.columns if col.strip().endswith("Disp.")]
+if "ENTREGA CHEIO DL" in df_multirio.columns:
+    disp_cols.append("ENTREGA CHEIO DL")
 
-# Exibir a nova tabela. Se a coluna "JANELAS MULTIRIO" estiver presente, utiliza-a como índice.
-st.markdown('<div class="dataframe-container">', unsafe_allow_html=True)
-if "JANELAS MULTIRIO" in selected_columns_nova:
-    st.dataframe(df_nova[selected_columns_nova].set_index("JANELAS MULTIRIO"), use_container_width=True)
-else:
-    st.dataframe(df_nova[selected_columns_nova], use_container_width=True)
-st.markdown('</div>', unsafe_allow_html=True)
+if not disp_cols:
+    st.error("Nenhuma coluna com 'Disp.' encontrada na planilha janelas_multirio_corrigido.xlsx")
+    st.stop()
 
-# Botão para exportar os dados da nova planilha em CSV
-csv_data_nova = df_nova[selected_columns_nova].to_csv(index=False, sep=';', encoding='utf-8-sig')
-st.download_button(
-    label="📥 Baixar dados da Nova Planilha em CSV",
-    data=csv_data_nova.encode('utf-8-sig'),
-    file_name="janelas_multirio_corrigido.csv",
-    mime="text/csv"
-)
+# Cria um DataFrame contendo os campos originais para a Multirio
+cols_multirio = ["Data", "JANELAS MULTIRIO"] + disp_cols
+df_multirio_unified = df_multirio[cols_multirio].copy()
+df_multirio_unified.rename(columns={"JANELAS MULTIRIO": "Horário"}, inplace=True)
+df_multirio_unified["Terminal"] = "Multirio"
+
+# --- Processamento dos dados da planilha informacoes_janelas.xlsx ---
+# Verifica se as colunas necessárias existem
+required_cols = {"Dia", "Hora Inicial", "Hora Final", "Qtd Veículos Reservados"}
+if not required_cols.issubset(df_info.columns):
+    st.error("Colunas necessárias não encontradas na planilha informacoes_janelas.xlsx")
+    st.stop()
+
+# Renomeia "Dia" para "Data" e cria o campo "Horário"
+df_info_renamed = df_info.rename(columns={"Dia": "Data"})
+df_info_renamed["Horário"] = df_info_renamed["Hora Inicial"].astype(str) + " - " + df_info_renamed["Hora Final"].astype(str)
+
+# Seleciona os campos originais para o Rio Brasil Terminal
+df_info_unified = df_info_renamed[["Data", "Horário", "Qtd Veículos Reservados"]].copy()
+df_info_unified["Terminal"] = "Rio Brasil Terminal"
+
+# --- Consolidação ---
+# A união será feita pela união das colunas (o DataFrame resultante terá todas as colunas presentes)
+df_unified = pd.concat([df_multirio_unified, df_info_unified], ignore_index=True)
+df_unified.sort_values(by=["Data", "Horário"], inplace=True)
+
+# ======================================================
+# Estilização da Tabela Unificada (Cor das Linhas)
+# ======================================================
+
+def highlight_terminal(row):
+    """
+    Aplica cor de fundo à linha com base no terminal.
+      - Laranja (#FFA500) para Multirio.
+      - Azul (#87CEFA) para Rio Brasil Terminal.
+    """
+    if row["Terminal"] == "Multirio":
+        return ['background-color: #FFA500'] * len(row)
+    elif row["Terminal"] == "Rio Brasil Terminal":
+        return ['background-color: #87CEFA'] * len(row)
+    else:
+        return [''] * len(row)
+
+# ======================================================
+# Exibição das Tabelas Lado a Lado para 3 dias (D, D+1 e D+2)
+# ======================================================
+
+# Obtém os dias únicos (assumindo que a coluna "Data" contenha datas em formato compatível)
+unique_dates = sorted(df_unified["Data"].unique())
+
+if len(unique_dates) < 3:
+    st.warning("Menos de 3 dias disponíveis. Exibindo as datas disponíveis.")
+
+# Cria 3 colunas para exibição lado a lado
+cols_display = st.columns(3)
+for i in range(3):
+    if i < len(unique_dates):
+        data = unique_dates[i]
+        df_data = df_unified[df_unified["Data"] == data].copy()
+        # Reinicia o índice para garantir unicidade
+        df_data = df_data.reset_index(drop=True)
+        # Reordena as colunas para que "Data" seja a primeira coluna
+        col_order = ["Data"] + [col for col in df_data.columns if col != "Data"]
+        df_data = df_data[col_order]
+        # Obtém as colunas numéricas para formatação
+        num_cols = df_data.select_dtypes(include=['number']).columns
+        # Aplica a estilização, formata os números como inteiros e oculta o índice
+        styled_data = (
+            df_data.style
+            .apply(highlight_terminal, axis=1)
+            .format({col: "{:.0f}" for col in num_cols})
+            .hide(axis='index')
+        )
+        with cols_display[i]:
+            st.markdown(f"### Data: {data}")
+            st.dataframe(styled_data, use_container_width=True, hide_index=True)
+    else:
+        with cols_display[i]:
+            st.markdown("### Data: N/A")
+            st.write("Sem dados")
