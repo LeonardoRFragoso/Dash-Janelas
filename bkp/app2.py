@@ -12,7 +12,7 @@ from googleapiclient.http import MediaIoBaseDownload
 # ======================================================
 
 def load_spreadsheet(file_id: str, sheet_name: str = 0) -> pd.DataFrame:
-    credentials_path = r"C:\Users\leona\OneDrive\Documentos\Dash-Janelas\gdrive_credentials.json"
+    credentials_path = r"C:\Users\leonardo.fragoso\Desktop\Projetos\Dash-Janelas\gdrive_credentials.json"
     with open(credentials_path, 'r') as f:
         credentials_info = json.load(f)
     credentials = service_account.Credentials.from_service_account_info(credentials_info)
@@ -48,19 +48,14 @@ def load_informacoes_janelas_data() -> pd.DataFrame:
     return load_spreadsheet(file_id)
 
 # ======================================================
-# Função para abreviar os nomes das colunas
+# Função para abreviar os nomes das colunas (para exibição)
 # ======================================================
 
 def abbreviate_column(col_name):
     mapping = {
-        "RETIRADA CHEIO Disp.": "R C",
-        "RETIRADA VAZIO Disp.": "R Z",
-        "RETIRADA CARGA SOLTA Disp.": "R C S",
-        "RETIRADA ARMAZÉM Disp.": "R A",
-        "ENTREGA CHEIO Disp.": "E C",
-        "ENTREGA VAZIO Disp.": "E V",
-        "ENTREGA CARGA SOLTA Disp.": "E C S",
-        "ENTREGA CHEIO DL": "E C DL"
+        "RETIRADA CHEIO Disp.": "CH",
+        "RETIRADA VAZIO Disp.": "VZ",
+        "RETIRADA CARGA SOLTA Disp.": "CS"
     }
     if col_name in mapping:
         return mapping[col_name]
@@ -77,7 +72,7 @@ st.set_page_config(page_title="Dashboard de Janelas", layout="wide")
 # ======================================================
 
 with st.sidebar:
-    st.image("https://drive.google.com/thumbnail?id=1wwRzTvBlg5ejwY_O7xWz4ZDdW77YNh2q&sz=w500", width=200)
+    st.image(r"C:\Users\leonardo.fragoso\Desktop\Projetos\Dash-Janelas\itracker_logo.png", width=250)
     st.title("Dashboard de Janelas")
     st.markdown("**Torre de Controle - Dashboard de Janelas no Porto**")
 
@@ -92,12 +87,16 @@ except Exception as e:
     st.error(f"Erro ao carregar os dados das planilhas: {e}")
     st.stop()
 
-# Filtrar colunas relevantes para Multirio
-disp_cols = [col for col in df_multirio.columns if col.strip().endswith("Disp.")]
-if "ENTREGA CHEIO DL" in df_multirio.columns:
-    disp_cols.append("ENTREGA CHEIO DL")
+# --- Processamento dos dados para cada empresa ---
+
+# Para Multirio: usar apenas as colunas específicas de disponibilidade
+disp_cols = [col for col in df_multirio.columns if col in [
+    "RETIRADA CHEIO Disp.",
+    "RETIRADA VAZIO Disp.",
+    "RETIRADA CARGA SOLTA Disp."
+]]
 if not disp_cols:
-    st.error("Nenhuma coluna com 'Disp.' encontrada na planilha janelas_multirio_corrigido.xlsx")
+    st.error("Nenhuma coluna específica de disponibilidade encontrada na planilha do Multirio.")
     st.stop()
 
 cols_multirio = ["Data", "JANELAS MULTIRIO"] + disp_cols
@@ -105,10 +104,10 @@ df_multirio_unified = df_multirio[cols_multirio].copy()
 df_multirio_unified.rename(columns={"JANELAS MULTIRIO": "Horário"}, inplace=True)
 df_multirio_unified["Terminal"] = "Multirio"
 
-# Filtrar colunas relevantes para Rio Brasil Terminal
+# Para Rio Brasil Terminal: usar as colunas "Dia", "Hora Inicial", "Hora Final", "Qtd Veículos Reservados"
 required_cols = {"Dia", "Hora Inicial", "Hora Final", "Qtd Veículos Reservados"}
 if not required_cols.issubset(df_info.columns):
-    st.error("Colunas necessárias não encontradas na planilha informacoes_janelas.xlsx")
+    st.error("Colunas necessárias não encontradas na planilha de informações.")
     st.stop()
 
 df_info_renamed = df_info.rename(columns={"Dia": "Data"})
@@ -116,13 +115,39 @@ df_info_renamed["Horário"] = df_info_renamed["Hora Inicial"].astype(str) + " - 
 df_info_unified = df_info_renamed[["Data", "Horário", "Qtd Veículos Reservados"]].copy()
 df_info_unified["Terminal"] = "Rio Brasil Terminal"
 
-# Unificar e converter a coluna Data para o tipo date
+# Unificar os dados
 df_unified = pd.concat([df_multirio_unified, df_info_unified], ignore_index=True)
 df_unified["Data"] = pd.to_datetime(df_unified["Data"], errors="coerce", dayfirst=True).dt.date
 df_unified.sort_values(by=["Data", "Horário"], inplace=True)
 
 # ======================================================
-# Alerta Fixo: Próxima janela disponível e disponibilidade dessa janela
+# Função para filtrar linhas com dados válidos conforme o terminal
+# ======================================================
+
+def row_has_valid_availability(row):
+    # Para Rio Brasil Terminal, considere válida se "Qtd Veículos Reservados" for numérico e diferente de 0.
+    if row["Terminal"] == "Rio Brasil Terminal":
+        try:
+            val = float(row["Qtd Veículos Reservados"])
+        except:
+            val = 0
+        return pd.notna(row["Qtd Veículos Reservados"]) and val != 0
+    # Para Multirio, considere válida se ao menos uma das colunas de disponibilidade tiver valor numérico diferente de 0.
+    elif row["Terminal"] == "Multirio":
+        for col in disp_cols:
+            if col in row:
+                try:
+                    val = float(row[col])
+                except:
+                    val = 0
+                if pd.notna(row[col]) and str(row[col]).strip().lower() not in ["", "none"] and val != 0:
+                    return True
+        return False
+    else:
+        return False
+
+# ======================================================
+# Alerta Fixo: Próxima janela disponível e disponibilidade desta janela
 # ======================================================
 
 today = datetime.date.today()
@@ -136,11 +161,10 @@ if not df_today.empty:
     if not df_next.empty:
         next_window = df_next.iloc[0]
         if next_window['Terminal'] == "Rio Brasil Terminal":
-            # Disponibilidade é o valor da coluna "Qtd Veículos Reservados"
             available = next_window['Qtd Veículos Reservados']
             availability_str = f"{available}"
         elif next_window['Terminal'] == "Multirio":
-            # Para Multirio, listar a disponibilidade de cada coluna separadamente
+            # Para Multirio, exibe a disponibilidade de cada coluna separadamente.
             avail_list = []
             for col in disp_cols:
                 abbr = abbreviate_column(col)
@@ -156,7 +180,7 @@ else:
     st.info("Não há dados para o dia de hoje.")
 
 # ======================================================
-# Exibição das Tabelas Lado a Lado para 3 dias (D, D+1 e D+2)
+# Função para estilizar as linhas conforme o terminal
 # ======================================================
 
 def highlight_terminal_mod(row, terminal_aux):
@@ -167,6 +191,10 @@ def highlight_terminal_mod(row, terminal_aux):
     elif term == "Rio Brasil Terminal":
         return ['background-color: #F37529; color: white'] * len(row)
     return [''] * len(row)
+
+# ======================================================
+# Exibição das Tabelas Lado a Lado para 3 dias (D, D+1 e D+2)
+# ======================================================
 
 unique_dates = sorted(df_unified["Data"].dropna().unique())
 if len(unique_dates) < 3:
@@ -180,6 +208,9 @@ for i in range(3):
         data = unique_dates[i]
         df_data = df_unified[df_unified["Data"] == data].copy()
         df_data = df_data.drop(columns=["Data"], errors="ignore")
+        
+        # Aplicar filtragem de linhas válidas somente para disponibilidade:
+        df_data = df_data[df_data.apply(row_has_valid_availability, axis=1)]
         
         numeric_cols = df_data.select_dtypes(include=['number']).columns
         if not numeric_cols.empty:
@@ -199,23 +230,16 @@ for i in range(3):
             except Exception as e:
                 st.error(f"Erro ao filtrar horários do dia atual: {e}")
         
-        cols_to_drop = []
-        for idx in [9, 10]:
-            if idx < df_data.shape[1]:
-                col_name = df_data.columns[idx]
-                if col_name != "Terminal":
-                    cols_to_drop.append(col_name)
-        if cols_to_drop:
-            df_data = df_data.drop(columns=cols_to_drop, errors="ignore")
-        
+        # Para manter a informação do terminal para a estilização
         if "Terminal" in df_data.columns:
             terminal_aux = df_data["Terminal"].copy()
-            df_data = df_data.drop(columns=["Terminal"])
         else:
             terminal_aux = pd.Series([""] * len(df_data), index=df_data.index)
         
+        # Abreviar os nomes das colunas para exibição e filtrar apenas as colunas desejadas:
         df_data = df_data.rename(columns=lambda col: abbreviate_column(col))
-        numeric_cols = df_data.select_dtypes(include=['number']).columns
+        cols_to_keep = [col for col in df_data.columns if col in ["Horário", "CH", "VZ", "CS"]]
+        df_data = df_data[cols_to_keep]
         
         with cols_display[i]:
             title = table_titles[i]
@@ -225,9 +249,10 @@ for i in range(3):
                 st.write("Sem dados para exibição")
             else:
                 styled_data = df_data.style.apply(lambda row: highlight_terminal_mod(row, terminal_aux), axis=1)
+                # Formatação para colunas numéricas, se houver
+                numeric_cols = df_data.select_dtypes(include=['number']).columns
                 if not numeric_cols.empty:
                     styled_data = styled_data.format("{:.0f}", subset=numeric_cols)
-                
                 st.dataframe(styled_data, use_container_width=True, hide_index=True)
     else:
         with cols_display[i]:
@@ -241,14 +266,9 @@ for i in range(3):
 legend_html = """
 <b>Legenda - Abreviações</b><br>
 <ul style="list-style: none; padding-left: 0;">
-    <li><b>R C</b>: RETIRADA CHEIO Disp.</li>
-    <li><b>R Z</b>: RETIRADA VAZIO Disp.</li>
-    <li><b>R C S</b>: RETIRADA CARGA SOLTA Disp.</li>
-    <li><b>R A</b>: RETIRADA ARMAZÉM Disp.</li>
-    <li><b>E C</b>: ENTREGA CHEIO Disp.</li>
-    <li><b>E V</b>: ENTREGA VAZIO Disp.</li>
-    <li><b>E C S</b>: ENTREGA CARGA SOLTA Disp.</li>
-    <li><b>E C DL</b>: ENTREGA CHEIO DL</li>
+    <li><b>CH</b>: RETIRADA CHEIO Disp.</li>
+    <li><b>VZ</b>: RETIRADA VAZIO Disp.</li>
+    <li><b>CS</b>: RETIRADA CARGA SOLTA Disp.</li>
 </ul>
 """
 
