@@ -105,6 +105,64 @@ with st.sidebar:
     st.title("Dashboard de Janelas")
     st.markdown("**Torre de Controle - Dashboard de Janelas no Porto**")
 
+# =============================================================================
+# ESTILIZAÇÃO E EXIBIÇÃO DO TÍTULO PRINCIPAL
+# =============================================================================
+st.markdown(
+    """
+    <style>
+        /* Container e estilo do título principal */
+        .titulo-dashboard-container {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            margin: 0 auto;
+            padding: 25px 20px;
+            background: linear-gradient(to right, #F37529, rgba(255, 255, 255, 0.8));
+            border-radius: 15px;
+            box-shadow: 0 6px 10px rgba(0, 0, 0, 0.3);
+        }
+        .titulo-dashboard {
+            font-size: 50px;
+            font-weight: bold;
+            color: #F37529;
+            text-transform: uppercase;
+            margin: 0;
+        }
+        .subtitulo-dashboard {
+            font-size: 18px;
+            color: #555555;
+            margin: 10px 0 0 0;
+        }
+        .logo-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .logo-container img {
+            max-width: 200px;
+            height: auto;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    f"""
+    <div class="titulo-dashboard-container">
+        <h1 class="titulo-dashboard">Torre de Controle Itracker - Dashboard de Janelas</h1>
+        <p class="subtitulo-dashboard">Monitorando em tempo real as operações das janelas no Porto</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.divider()
 
 # =============================================================================
 # CARREGAMENTO E TRATAMENTO DOS DADOS
