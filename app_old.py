@@ -48,20 +48,19 @@ def load_janelas_multirio_data() -> pd.DataFrame:
     """
     Carrega a planilha do Multirio (Google Sheets) via file_id.
     """
-    file_id = "1Eh58MkuHwyHpYCscMPD9X1r_83dbHV63"  # Ajuste para o ID real
+    file_id = "1gzqhOADx-VJstLHvM7VVm3iuGUuz3Vgu"  # ID da planilha janelas_multirio_corrigido.xlsx
     return load_spreadsheet(file_id)
-
 
 def load_informacoes_janelas_data() -> pd.DataFrame:
     """
     Carrega a planilha do Rio Brasil Terminal (Google Sheets) via file_id.
     """
-    file_id = "1prMkez7J-wbWUGbZp-VLyfHtisSLi-XQ"  # ID informado
+    file_id = "1fMeKSdRvZod7FkvWLKXwsZV32W6iSmbI"  # ID da nova planilha data.xlsx
     return load_spreadsheet(file_id)
 
 
 # =============================================================================
-# FUNÇÃO AUXILIAR DE RENOMEAÇÃO DAS COLUNAS
+# FUNÇÃO AUXILIAR DE RENOMEAÇÃO DAS COLUNAS (para Multirio)
 # =============================================================================
 def abbreviate_column(col_name: str) -> str:
     """
@@ -78,7 +77,7 @@ def abbreviate_column(col_name: str) -> str:
 
 
 # =============================================================================
-# FUNÇÃO PARA COMBINAR COLUNAS DUPLICADAS
+# FUNÇÃO PARA COMBINAR COLUNAS DUPLICADAS (caso apareçam após merges)
 # =============================================================================
 def merge_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -87,7 +86,6 @@ def merge_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     combined = {}
     for col in df.columns.unique():
-        # Se houver duplicatas, pega todas e preenche para pegar o primeiro não-nulo
         dup = df.loc[:, df.columns == col]
         if dup.shape[1] > 1:
             combined[col] = dup.bfill(axis=1).iloc[:, 0]
@@ -174,57 +172,78 @@ except Exception as e:
     st.error(f"Erro ao carregar os dados das planilhas: {e}")
     st.stop()
 
-# ----------------- Dados do Multirio -----------------
-mapping_keys = [
+# 1) ----------------- DADOS DO MULTIRIO -----------------
+# Principais colunas de disponibilidade
+disp_cols = [
     "ENTREGA CHEIO Disp.",
     "ENTREGA VAZIO Disp.",
     "RETIRADA CHEIO Disp.",
     "RETIRADA VAZIO Disp.",
     "RETIRADA CARGA SOLTA Disp."
 ]
-
-# Seleciona as colunas de disponibilidade e valida a existência
-disp_cols = [col for col in df_multirio.columns if col in mapping_keys]
-if not disp_cols:
-    st.error("Nenhuma coluna de disponibilidade encontrada na planilha do Multirio.")
-    st.stop()
-
 expected_multirio_cols = ["Data", "JANELAS MULTIRIO"] + disp_cols
+
 if not set(expected_multirio_cols).issubset(df_multirio.columns):
     st.error("A planilha Multirio não tem as colunas esperadas (Data, JANELAS MULTIRIO, etc.).")
     st.stop()
 
-# Cria um DataFrame unificado para o Multirio
 df_multirio_unified = df_multirio[expected_multirio_cols].copy()
 df_multirio_unified.rename(columns={"JANELAS MULTIRIO": "Horário"}, inplace=True)
 df_multirio_unified["Terminal"] = "Multirio"
 
 
-# ----------------- Dados do Rio Brasil Terminal -----------------
-required_cols_rio = {"Dia", "Hora Inicial", "Hora Final", "ECH", "RCH"}
+# 2) ----------------- DADOS DO RIO BRASIL TERMINAL -----------------
+required_cols_rio = {
+    "DATA", "HORA", "DESCRICAO", "DISPONÍVEL", "RESERVADA"
+}
 if not required_cols_rio.issubset(df_info.columns):
-    st.error("A planilha Rio Brasil Terminal não possui as colunas esperadas.")
+    st.error(
+        "A planilha Rio Brasil Terminal não possui as colunas mínimas esperadas: "
+        "DATA, HORA, DESCRICAO, DISPONÍVEL, RESERVADA."
+    )
     st.stop()
 
-df_info_renamed = df_info.rename(columns={"Dia": "Data"})
-df_info_renamed["Horário"] = (
-    df_info_renamed["Hora Inicial"].astype(str) +
-    " - " +
-    df_info_renamed["Hora Final"].astype(str)
-)
-# Converte valores numéricos e garante que as colunas existam
-df_info_renamed["ECH"] = pd.to_numeric(df_info_renamed["ECH"], errors="coerce").fillna(0)
-df_info_renamed["RCH"] = pd.to_numeric(df_info_renamed["RCH"], errors="coerce").fillna(0)
-for col in ["EVZ", "RVZ", "RCS"]:
-    if col not in df_info_renamed.columns:
-        df_info_renamed[col] = 0
+df_info_renamed = df_info.copy()
+df_info_renamed.rename(columns={"DATA": "Data", "HORA": "Horário"}, inplace=True)
 
-df_info_unified = df_info_renamed[["Data", "Horário", "ECH", "EVZ", "RCH", "RVZ", "RCS"]].copy()
+# Converte para numérico e garante zero se vazio
+for col in ["DISPONÍVEL", "RESERVADA"]:
+    df_info_renamed[col] = pd.to_numeric(df_info_renamed[col], errors="coerce").fillna(0)
+
+# Cria as colunas ECH, EVZ, RCH, RVZ, RCS
+df_info_renamed["ECH"] = 0
+df_info_renamed["EVZ"] = 0
+df_info_renamed["RCH"] = 0
+df_info_renamed["RVZ"] = 0
+df_info_renamed["RCS"] = 0
+
+# Mapeamento de DESCRICAO → coluna final
+desc_to_col = {
+    "EXPORTAÇÃO CHEIO": "ECH",
+    "IMPORTAÇÃO CHEIO": "RCH",
+    "EXPORTAÇÃO VAZIO": "EVZ",
+    "IMPORTAÇÃO VAZIO": "RVZ",
+    "ENTREGA CARGA SOLTA": "RCS"
+}
+
+# Preenche a coluna correspondente com (DISPONÍVEL - RESERVADA)
+for desc, col_alvo in desc_to_col.items():
+    mask = df_info_renamed["DESCRICAO"] == desc
+    df_info_renamed.loc[mask, col_alvo] = df_info_renamed.loc[mask, "DISPONÍVEL"] - df_info_renamed.loc[mask, "RESERVADA"]
+
+df_info_renamed["Terminal"] = "Rio Brasil Terminal"
+
+# Fica só com as colunas iguais às do Multirio + Terminal
+df_info_unified = df_info_renamed[[
+    "Data", "Horário", "ECH", "EVZ", "RCH", "RVZ", "RCS"
+]].copy()
 df_info_unified["Terminal"] = "Rio Brasil Terminal"
 
 
-# ----------------- Unificação e ordenação dos dados -----------------
+# 3) ----------------- UNIFICAÇÃO E ORDENAÇÃO -----------------
 df_unified = pd.concat([df_multirio_unified, df_info_unified], ignore_index=True)
+
+# Converter "Data" para datetime
 df_unified["Data"] = pd.to_datetime(df_unified["Data"], errors="coerce", dayfirst=True).dt.date
 df_unified.sort_values(by=["Data", "Horário"], inplace=True)
 
@@ -234,18 +253,11 @@ df_unified.sort_values(by=["Data", "Horário"], inplace=True)
 # =============================================================================
 def row_has_valid_availability(row: pd.Series) -> bool:
     """
-    Verifica se a linha possui disponibilidade válida (> 0) de acordo com o Terminal.
+    Verifica se a linha possui disponibilidade (> 0) em alguma das colunas ECH, EVZ, RCH, RVZ, RCS.
     """
-    if row["Terminal"] == "Rio Brasil Terminal":
-        return (row.get("ECH", 0) != 0 or row.get("RCH", 0) != 0)
-    elif row["Terminal"] == "Multirio":
-        for col in disp_cols:
-            try:
-                if float(row.get(col, 0)) != 0:
-                    return True
-            except (ValueError, TypeError):
-                continue
-        return False
+    for col in ["ECH", "EVZ", "RCH", "RVZ", "RCS"]:
+        if row.get(col, 0) > 0:
+            return True
     return False
 
 
@@ -268,24 +280,28 @@ current_hour = datetime.datetime.now().hour
 
 df_today = df_unified[df_unified["Data"] == today].copy()
 if not df_today.empty:
+    # Extrai a hora inicial (Ex: "23:00 - 23:59" → "23")
     df_today["StartHour"] = (
         df_today["Horário"]
+        .astype(str)
         .str.split(" - ")
         .str[0]
         .str.extract(r'(\d{1,2})')[0]
         .astype(float, errors="ignore")
     )
+    # Filtra somente linhas >= hora atual
     df_next = df_today[df_today["StartHour"] >= current_hour].sort_values(by="StartHour", na_position="last")
     
     if not df_next.empty:
         next_window = df_next.iloc[0]
-        if next_window["Terminal"] == "Rio Brasil Terminal":
-            availability_str = f"ECH: {next_window.get('ECH', 0)}, RCH: {next_window.get('RCH', 0)}"
-        elif next_window["Terminal"] == "Multirio":
-            disp_list = [f"{abbreviate_column(col)}: {next_window.get(col, 0)}" for col in disp_cols]
-            availability_str = ", ".join(disp_list)
-        else:
-            availability_str = "N/A"
+        # Exibe a quantidade em cada coluna ECH, EVZ, RCH, RVZ, RCS
+        availability_str = (
+            f"ECH: {int(next_window.get('ECH', 0))}, "
+            f"EVZ: {int(next_window.get('EVZ', 0))}, "
+            f"RCH: {int(next_window.get('RCH', 0))}, "
+            f"RVZ: {int(next_window.get('RVZ', 0))}, "
+            f"RCS: {int(next_window.get('RCS', 0))}"
+        )
         st.info(
             f"**Próxima janela disponível**: {next_window['Horário']} - Terminal: {next_window['Terminal']}.\n"
             f"Disponibilidade: {availability_str}"
@@ -301,7 +317,7 @@ else:
 # =============================================================================
 unique_dates = sorted(df_unified["Data"].dropna().unique())
 if len(unique_dates) < 3:
-    st.warning("Menos de 3 dias disponíveis. Exibindo as datas disponíveis.")
+    st.warning("Menos de 3 dias disponíveis. Exibindo as datas que existirem na planilha.")
 
 cols_display = st.columns(3)
 table_titles = ["D", "D+1", "D+2"]
@@ -309,19 +325,19 @@ table_titles = ["D", "D+1", "D+2"]
 for i in range(3):
     with cols_display[i]:
         st.markdown(f"<h3 style='text-align: center; color: black;'>{table_titles[i]}</h3>", unsafe_allow_html=True)
+        
         if i < len(unique_dates):
             date_x = unique_dates[i]
             df_data = df_unified[df_unified["Data"] == date_x].copy()
-            # Remove a coluna 'Data' para exibição
-            df_data.drop(columns=["Data"], inplace=True, errors="ignore")
             
-            # Filtra as linhas com disponibilidade válida
+            # Filtra apenas janelas com disponibilidade > 0 em ECH, EVZ, RCH, RVZ, RCS
             df_data = df_data[df_data.apply(row_has_valid_availability, axis=1)].copy()
             
-            # Para hoje, filtra apenas horários a partir da hora atual
-            if date_x == today and "Horário" in df_data.columns:
+            # Se for hoje, mostra apenas horários >= hora atual
+            if date_x == today:
                 df_data["StartHour"] = (
                     df_data["Horário"]
+                    .astype(str)
                     .str.split(" - ")
                     .str[0]
                     .str.extract(r'(\d{1,2})')[0]
@@ -330,33 +346,38 @@ for i in range(3):
                 df_data = df_data[df_data["StartHour"] >= current_hour].copy()
                 df_data.drop(columns=["StartHour"], inplace=True, errors="ignore")
             
-            # Reseta o índice para garantir que seja único
-            df_data.reset_index(drop=True, inplace=True)
+            # Retira "Data" e Terminal para tratar índices separadamente
+            df_data.drop(columns=["Data"], inplace=True, errors="ignore")
+            terminal_aux = df_data["Terminal"].copy()
+            df_data.drop(columns=["Terminal"], inplace=True)
             
-            # Armazena a coluna 'Terminal' separadamente e remove-a do DataFrame
-            if "Terminal" in df_data.columns:
-                terminal_aux = df_data["Terminal"].copy()
-                df_data.drop(columns=["Terminal"], inplace=True)
-            else:
-                terminal_aux = pd.Series([""] * len(df_data), index=df_data.index)
-            
-            # Renomeia as colunas usando a função de abreviação
+            # Renomeia possíveis colunas do Multirio (ENTREGA CHEIO Disp. → ECH, etc.)
             df_data.rename(columns=abbreviate_column, inplace=True)
-            keep_cols = ["Horário", "ECH", "EVZ", "RCH", "RVZ", "RCS"]
-            df_data = df_data[[col for col in keep_cols if col in df_data.columns]]
             
-            # Se após a renomeação houver duplicidade nas colunas, combine-as
+            # Combina colunas duplicadas, se existirem
             df_data = merge_duplicate_columns(df_data)
             
-            # Aplica a estilização usando a série terminal_aux (pelo índice da linha)
+            # Mantém só as colunas: Horário, ECH, EVZ, RCH, RVZ, RCS
+            keep_cols = ["Horário", "ECH", "EVZ", "RCH", "RVZ", "RCS"]
+            df_data = df_data[[c for c in keep_cols if c in df_data.columns]]
+            
+            # Agora **resetamos** o índice de ambos para evitar KeyError no Styler
+            df_data.reset_index(drop=True, inplace=True)
+            terminal_aux.reset_index(drop=True, inplace=True)
+            
+            # Estilização por terminal (usa .iloc[row.name])
             styled_data = df_data.style.apply(
-                lambda row: highlight_terminal_mod(row, terminal_aux.loc[row.name]),
+                lambda row: highlight_terminal_mod(row, terminal_aux.iloc[row.name]),
                 axis=1
             )
-            # Formata as colunas numéricas sem casas decimais
+            # Formata as colunas numéricas
             num_cols = df_data.select_dtypes(include=["number"]).columns
             styled_data = styled_data.format("{:.0f}", subset=num_cols)
-            st.dataframe(styled_data, use_container_width=True, hide_index=True)
+            
+            if df_data.empty:
+                st.write("Sem janelas disponíveis.")
+            else:
+                st.dataframe(styled_data, use_container_width=True, hide_index=True)
         else:
             st.write("Sem dados")
 
@@ -365,7 +386,7 @@ for i in range(3):
 # LEGENDA
 # =============================================================================
 legend_html = """
-<b>Legenda - Abreviações</b><br>
+<b>Legenda - Abreviações (Multirio)</b><br>
 <ul style="list-style: none; padding-left: 0;">
     <li><b>ECH</b>: entrega de cheio</li>
     <li><b>EVZ</b>: entrega de vazio</li>
